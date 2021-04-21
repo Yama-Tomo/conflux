@@ -14,7 +14,8 @@ import Crc32 from './crc.js';
 const encoder = new TextEncoder();
 
 class ZipTransformer {
-  constructor() {
+  constructor(opts) {
+    this.opts = opts || {};
     this.files = Object.create(null);
     this.filenames = [];
     this.offset = JSBI.BigInt(0);
@@ -38,14 +39,14 @@ class ZipTransformer {
     if (entry.directory && !name.endsWith('/')) name += '/';
     if (this.files[name]) ctrl.abort(new Error('File already exists.'));
 
-    const nameBuf = encoder.encode(name);
+    const nameBuf = this.opts.encodeMetaData ? this.opts.encodeMetaData(name) : encoder.encode(name);
     this.filenames.push(name);
 
     this.files[name] = {
       directory: !!entry.directory,
       nameBuf,
       offset: this.offset,
-      comment: encoder.encode(entry.comment || ''),
+      comment: this.opts.encodeMetaData ? this.opts.encodeMetaData(entry.comment || '') : encoder.encode(entry.comment || ''),
       compressedLength: JSBI.BigInt(0),
       uncompressedLength: JSBI.BigInt(0),
       header: new Uint8Array(26),
@@ -57,7 +58,7 @@ class ZipTransformer {
     const hdv = new DataView(header.buffer);
     const data = new Uint8Array(30 + nameBuf.length);
 
-    hdv.setUint32(0, 0x14000808);
+    hdv.setUint32(0, this.opts.isNotUtf8 ? 0x14000800 : 0x14000808); // 下位2バイトの general purpose bit flag は1バイトずつ分解して前後逆に読む点に注意 0800 なら 0008 と読む
     hdv.setUint16(
       6,
       (((date.getHours() << 6) | date.getMinutes()) << 5) |
@@ -136,7 +137,7 @@ class ZipTransformer {
     this.filenames.forEach((fileName) => {
       file = this.files[fileName];
       dv.setUint32(index, 0x504b0102);
-      dv.setUint16(index + 4, 0x1400);
+      dv.setUint16(index + 4, 0x1400); // Created Zip Spec, Created OS
       dv.setUint16(index + 32, file.comment.length, true);
       dv.setUint8(index + 38, file.directory ? 16 : 0);
       dv.setUint32(index + 42, JSBI.toNumber(file.offset), true);
@@ -166,8 +167,8 @@ const ts =
   PonyfillTransformStream;
 
 class Writer extends ts {
-  constructor() {
-    super(new ZipTransformer());
+  constructor(opts) {
+    super(new ZipTransformer(opts));
   }
 }
 

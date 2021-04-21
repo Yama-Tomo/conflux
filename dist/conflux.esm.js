@@ -718,9 +718,10 @@ function _isNativeReflectConstruct() { if (typeof Reflect === "undefined" || !_R
 var encoder = new TextEncoder();
 
 var ZipTransformer = /*#__PURE__*/function () {
-  function ZipTransformer() {
+  function ZipTransformer(opts) {
     _classCallCheck(this, ZipTransformer);
 
+    this.opts = opts || {};
     this.files = _Object$create(null);
     this.filenames = [];
     this.offset = JSBI.BigInt(0);
@@ -749,13 +750,13 @@ var ZipTransformer = /*#__PURE__*/function () {
                 date = new Date(typeof entry.lastModified === 'undefined' ? _Date$now() : entry.lastModified);
                 if (entry.directory && !_endsWithInstanceProperty(name).call(name, '/')) name += '/';
                 if (this.files[name]) ctrl.abort(new Error('File already exists.'));
-                nameBuf = encoder.encode(name);
+                nameBuf = this.opts.encodeMetaData ? this.opts.encodeMetaData(name) : encoder.encode(name);
                 this.filenames.push(name);
                 this.files[name] = {
                   directory: !!entry.directory,
                   nameBuf: nameBuf,
                   offset: this.offset,
-                  comment: encoder.encode(entry.comment || ''),
+                  comment: this.opts.encodeMetaData ? this.opts.encodeMetaData(entry.comment || '') : encoder.encode(entry.comment || ''),
                   compressedLength: JSBI.BigInt(0),
                   uncompressedLength: JSBI.BigInt(0),
                   header: new Uint8Array(26)
@@ -764,7 +765,8 @@ var ZipTransformer = /*#__PURE__*/function () {
                 header = zipObject.header;
                 hdv = new DataView(header.buffer);
                 data = new Uint8Array(30 + nameBuf.length);
-                hdv.setUint32(0, 0x14000808);
+                hdv.setUint32(0, this.opts.isNotUtf8 ? 0x14000800 : 0x14000808); // 下位2バイトの general purpose bit flag は1バイトずつ分解して前後逆に読む点に注意 0800 なら 0008 と読む
+
                 hdv.setUint16(6, (date.getHours() << 6 | date.getMinutes()) << 5 | date.getSeconds() / 2, true);
                 hdv.setUint16(8, (date.getFullYear() - 1980 << 4 | date.getMonth() + 1) << 5 | date.getDate(), true);
                 hdv.setUint16(22, nameBuf.length, true);
@@ -859,7 +861,8 @@ var ZipTransformer = /*#__PURE__*/function () {
       _forEachInstanceProperty(_context4 = this.filenames).call(_context4, function (fileName) {
         file = _this.files[fileName];
         dv.setUint32(index, 0x504b0102);
-        dv.setUint16(index + 4, 0x1400);
+        dv.setUint16(index + 4, 0x1400); // Created Zip Spec, Created OS
+
         dv.setUint16(index + 32, file.comment.length, true);
         dv.setUint8(index + 38, file.directory ? 16 : 0);
         dv.setUint32(index + 42, JSBI.toNumber(file.offset), true);
@@ -892,10 +895,10 @@ var Writer = /*#__PURE__*/function (_ts) {
 
   var _super = _createSuper(Writer);
 
-  function Writer() {
+  function Writer(opts) {
     _classCallCheck(this, Writer);
 
-    return _super.call(this, new ZipTransformer());
+    return _super.call(this, new ZipTransformer(opts));
   }
 
   return Writer;
